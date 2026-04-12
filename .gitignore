@@ -1,0 +1,42 @@
+# Secrets
+.env
+.env.local
+
+# Whisper model (local download, too large for git)
+models/
+*.bin
+*.ct2
+
+# Audio cache (original WAV files from AMI)
+audio_cache/
+
+# Obsidian output
+MeetingNotes/
+
+# Logs
+*.log
+agents_error.log
+agents_result.txt
+uvicorn.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# HuggingFace cache (if any accidentally land in project)
+.cache/
