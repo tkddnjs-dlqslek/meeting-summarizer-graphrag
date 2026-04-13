@@ -1,5 +1,6 @@
 # Meeting Summarizer + GraphRAG Expert Panel
 
+[![CI](https://github.com/tkddnjs-dlqslek/meeting-summarizer-graphrag/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddnjs-dlqslek/meeting-summarizer-graphrag/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688.svg)](https://fastapi.tiangolo.com/)
 [![Neo4j](https://img.shields.io/badge/Neo4j-AuraDB-008CC1.svg)](https://neo4j.com/cloud/aura/)
