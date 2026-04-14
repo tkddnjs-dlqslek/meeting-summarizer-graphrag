@@ -240,7 +240,7 @@ erDiagram
 
 | 지표 | 값 |
 |---|---|
-| **WER** | **30.45%** (Deletion 535 지배적, 원인: Mix-Headset 단일 채널 vs ihm 4채널) |
+| **WER** | **30.45%** (Deletion 535 지배적 — 원인: backchannel 손실 + Whisper의 filler 제거 경향 + overlapping speech 병합. 자세한 분해는 [REPORT.md 10-5](REPORT.md) 참조) |
 | 핵심 숫자 보존 | ✅ **€25 / €12.50** 완벽 |
 | 참가자 이름 | ⚠️ Laura/Andrew/David ✅, **Craig → Greg 오인식** |
 
