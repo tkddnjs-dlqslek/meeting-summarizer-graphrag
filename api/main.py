@@ -10,6 +10,7 @@ from api.extractor import extract_graph_data
 from api.graph_builder import build_graph
 from api.agents import run_expert_panel
 from api.obsidian_writer import write_meeting_note
+from api.notion_writer import write_meeting_note_to_notion
 from api.stt import job_store, run_transcription
 
 
@@ -166,12 +167,14 @@ async def process_text(req: ExtractRequest):
     graph_data["node_count"] = node_count
 
     note_path = write_meeting_note(graph_data)
+    notion_url = write_meeting_note_to_notion(graph_data)
     return {
         "meeting_id": req.meeting_id,
         "project_id": req.project_id,
         "summary": graph_data["summary"],
         "node_count": node_count,
         "note_path": note_path,
+        "notion_url": notion_url,
         "graph_data": graph_data,
     }
 

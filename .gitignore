@@ -13,6 +13,9 @@ audio_cache/
 # Obsidian output
 MeetingNotes/
 
+# Notion database id cache (local setup)
+notion_db_id.json
+
 # Logs
 *.log
 agents_error.log

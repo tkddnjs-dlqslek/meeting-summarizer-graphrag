@@ -38,11 +38,13 @@ jobs:
             aiofiles \
             python-multipart \
             numpy \
+            notion-client \
             pytest
 
       - name: Run unit tests (mocked external services)
         env:
           NORMALIZE_DISABLE: "1"
+          NOTION_ENABLED: "false"
           # Placeholder values — 실제 호출은 하지 않지만 import 시점에
           # load_dotenv가 실패하지 않도록 더미 값을 넣는다.
           ANTHROPIC_API_KEY: "dummy"
@@ -58,11 +60,12 @@ jobs:
           #
           # 단, api.normalize의 상단 import는 sentence-transformers를 실제로 import하지
           # 않는다 (lazy load). 따라서 문제 없음.
-          python -m pytest tests/test_normalize.py tests/test_obsidian_writer.py tests/test_cypher_params.py -v
+          python -m pytest tests/test_normalize.py tests/test_obsidian_writer.py tests/test_cypher_params.py tests/test_notion_writer.py -v
 
       - name: Module import smoke test
         env:
           NORMALIZE_DISABLE: "1"
+          NOTION_ENABLED: "false"
           ANTHROPIC_API_KEY: "dummy"
           NEO4J_URI: "bolt://localhost:7687"
           NEO4J_USERNAME: "neo4j"
@@ -70,4 +73,4 @@ jobs:
           NEO4J_DATABASE: "neo4j"
         run: |
           python -c "from graph import cypher_queries, neo4j_client; print('graph OK')"
-          python -c "from api import extractor, graph_builder, agents, obsidian_writer, normalize; print('api OK')"
+          python -c "from api import extractor, graph_builder, agents, obsidian_writer, normalize, notion_writer; print('api OK')"

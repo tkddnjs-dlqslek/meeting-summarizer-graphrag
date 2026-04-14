@@ -675,14 +675,128 @@ c3ce5bd docs: REPORT sections 11-12 (follow-up + portfolio positioning)
 
 ---
 
-## 14. 요약
+## 14. 후속 개선 C — Notion database 병행 출력 (Obsidian과 이중화)
+
+### 14-1. 동기
+
+Obsidian vault는 개인 지식베이스로는 훌륭하지만 **팀 공유·필터링·권한 관리**에는 약합니다. 반대로 Notion은 팀 공유·SaaS UX가 강하지만 마크다운 파이프라인과 자연스럽게 연결되지 않습니다. 이 프로젝트는 두 출력을 **병행**하여 "개인 로컬 백업 + 팀 공유용 SaaS 저장" 두 시나리오를 동시에 만족시킵니다.
+
+### 14-2. 구현 원칙
+
+- **Obsidian writer는 전혀 건드리지 않음** — 기존 15개 유닛 테스트 그대로 유지, 회귀 0.
+- **완전히 선택적** — `NOTION_ENABLED=false`거나 토큰이 없으면 조용히 skip. 기존 사용자는 아무 영향 없음.
+- **실패가 파이프라인을 중단시키지 않음** — Notion API 오류는 catch해서 warning 로그 + None 반환. Obsidian·Neo4j·Claude 추출은 정상 작동.
+- **database schema 자동 생성** — 사용자가 schema를 손으로 만들 필요 없음. 첫 호출 시 코드가 `databases.create`로 생성하고 ID를 `notion_db_id.json`에 캐시.
+
+### 14-3. 구현 — [api/notion_writer.py](api/notion_writer.py)
+
+**핵심 함수**:
+
+- `is_enabled()`: `NOTION_ENABLED` env 읽기
+- `_get_client()`: `notion-client`의 `Client`를 lazy init. 토큰 없으면 None.
+- `_get_or_create_database(client)`: 환경변수 `NOTION_DATABASE_ID` → 로컬 캐시(`notion_db_id.json`) → parent page 아래 자동 생성 순으로 해결
+- `_fetch_property_types(client, database_id)`: database의 실제 properties를 조회 → 있는 것만 채우는 유연성 확보 (사용자가 properties 일부를 수정하거나 삭제해도 안전)
+- `_build_properties(graph_data, existing_property_types)`: 실제 존재하는 property만 매핑
+- `_build_blocks(graph_data) -> list[dict]`: 그래프 데이터를 Notion 블록 구조로 변환
+- `write_meeting_note_to_notion(graph_data) -> Optional[str]`: 메인 엔트리 — 페이지 URL 반환, 실패 시 None
+
+**블록 구조 매핑**:
+
+```
+💬 Callout (blue)      ← AI 요약 (상단 고정)
+─── Divider ───
+## 👥 참석자            ← Heading 2
+  • bulleted list      ← 발언 비중 포함
+## 🎯 핵심 주제
+  ▶ Toggle              ← 펼치면 summary + 관련 주제
+  ▶ Toggle
+## ✅ 결정 사항
+  🟢 Callout (green)   ← 결정 내용
+  > Quote               ← 근거 (rationale)
+## 📌 액션 아이템
+  ☐ To-do              ← [owner] desc (due: date)
+## 🏷️ 주요 엔티티
+  • bulleted list      ← [type] name
+```
+
+**Database schema (자동 생성)**:
+
+| Property | 타입 | 용도 |
+|---|---|---|
+| Title | title | 회의 제목 |
+| Date | date | 회의 날짜 |
+| Project | rich_text | project_id |
+| Participants | multi_select | Speaker 이름 집합 |
+| Categories | multi_select | Topic의 category 집합 |
+| Meeting ID | rich_text | UUID |
+| Previous Meeting ID | rich_text | v1은 text로만. self-relation은 v2 과제 |
+
+Notion API 제약상 **self-referencing relation은 database 생성 후 별도 update 단계**가 필요해서 v1에서는 rich_text로만 기록합니다. 실제 relation 승격은 다음 sprint에서.
+
+**Rich text 2000자 제한 대응**:
+
+Notion은 rich_text 블록당 2000자 제한이 있어 긴 summary는 `_split_long_text()`로 문장 경계에서 나눕니다. 첫 chunk는 callout, 이후 chunk는 paragraph로 이어붙여 시각적 연결성을 유지.
+
+### 14-4. 파이프라인 체이닝
+
+- [api/main.py](api/main.py) `/process-text`: `write_meeting_note` 직후 `write_meeting_note_to_notion` 호출, 응답 JSON에 `notion_url` 필드 추가
+- [api/stt.py](api/stt.py) `run_transcription`: 동일하게 체이닝, `pipeline_result`에 `notion_url` 포함
+
+두 경로 모두 Notion이 비활성이면 `notion_url=None`을 반환하고 나머지는 정상 동작.
+
+### 14-5. 유닛 테스트 — [tests/test_notion_writer.py](tests/test_notion_writer.py)
+
+**20개 테스트**, `notion_client.Client`를 `MagicMock`으로 교체해 실 API 호출 0.
+
+| 범주 | 테스트 |
+|---|---|
+| **활성화 스위치** | `NOTION_ENABLED=false` → None, 토큰 없음 → None, `is_enabled()` helper |
+| **Database 해결** | 첫 실행에 auto-create, 캐시 재사용, env override, parent page 누락 시 None |
+| **Properties 매핑** | Title·Date 포함, Participants multi-select, Categories multi-select, database에 없는 property는 skip |
+| **Blocks 구조** | 6개 type 모두 등장(callout/heading/bulleted/toggle/todo/quote/divider), summary → callout, topics → toggle, actions → to_do, rationale → quote |
+| **Edge cases** | 최소 graph_data, 긴 summary split, pages.create 예외 catch, retrieve 예외 catch |
+
+### 14-6. CI 대응
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml)에 `NOTION_ENABLED: "false"` env 추가. `notion-client`는 경량 라이브러리라 CI에 설치해도 부담 없음. `write_meeting_note_to_notion`이 `is_enabled()` 단계에서 바로 `None` 반환하므로 실 API 호출 없이 통과.
+
+Module import smoke test에 `notion_writer`도 추가해서 lazy load 구조가 깨지지 않았는지 확인.
+
+### 14-7. 전체 테스트 통계 (Notion 추가 후)
+
+| 파일 | 테스트 |
+|---|---|
+| test_normalize.py | 11 passed + 2 skipped |
+| test_obsidian_writer.py | 15 passed |
+| test_cypher_params.py | 35 passed |
+| **test_notion_writer.py** | **20 passed (신규)** |
+| **합계** | **81 passed + 2 skipped = 83개** |
+
+### 14-8. 사용자가 해야 할 일 (약 3분)
+
+1. Notion Integration 생성 → `ntn_...` 토큰 복사
+2. 부모 페이지 생성 + Integration 연결
+3. `.env`에 `NOTION_ENABLED=true`, `NOTION_TOKEN`, `NOTION_PARENT_PAGE_ID` 3줄 추가
+
+이후 모든 것(database 생성, schema 정의, 페이지 생성, 블록 렌더링)은 코드가 처리.
+
+### 14-9. 한계 / 다음 과제
+
+- **Self-referencing relation 미구현**: "Previous Meeting"을 Notion relation property로 만들려면 database 생성 후 `databases.update`로 self-relation을 별도 추가해야 합니다. 현재는 rich_text로 ID만 기록. v2에서 relation 승격 + Previous Meeting ID로 auto-lookup.
+- **Topic mention 미구현**: 이상적으로는 "관련 주제"를 Notion mention으로 만들어 호버 미리보기·클릭 이동이 되어야 합니다. 지금은 평문. 같은 database의 페이지 찾아서 mention block 만드는 로직이 필요.
+- **Rate limit**: Notion API는 3 req/sec. 한 회의에 2 요청(databases.retrieve + pages.create)이라 여유. 대규모 배치 처리 시 `time.sleep` 추가 필요.
+- **Actual Notion page verification**: 유닛 테스트는 mock 기반이므로 **실제 Notion 페이지가 예상대로 렌더링되는지**는 사용자가 토큰 넣고 `/process-text`를 한 번 돌려 확인해야 합니다.
+
+---
+
+## 15. 요약
 
 | 항목 | 내용 |
 |------|------|
 | **프로젝트명** | Meeting Summarizer + GraphRAG Expert Panel |
 | **핵심 기능** | 회의 텍스트/오디오 → AI 구조화 추출 → 지식 그래프(project_id 스코프 글로벌) → 멀티 에이전트 Q&A → Obsidian 노트 |
-| **총 코드량** | 약 2,500줄 (리팩터링 + 실험 스크립트 + 정규화 + 유닛 테스트 포함) |
-| **주요 기술** | FastAPI, Claude Sonnet 4.6 (tool_use), Neo4j, faster-whisper, sentence-transformers, HuggingFace datasets, jiwer, pytest, GitHub Actions |
-| **검증 상태** | KR-204 4주차 + AMI ES2002 4회차 텍스트 경로 + ES2002a 오디오 경로 E2E 통과, **61 유닛 테스트 통과 · GitHub Actions CI success (31초)** |
-| **핵심 성과** | (1) 회차 간 Speaker/Topic/Entity 공유 병합 작동, (2) GraphRAG 교차 회차 질의로 "결정 번복·진화·갈등" 추적, (3) STT→그래프 품질 전파 실증, (4) 실험 결과를 반영한 임베딩 정규화 반복 개선, (5) README 시각화·한계 명시·CI 배지로 포트폴리오 완성도 확보 |
+| **총 코드량** | 약 3,000줄 (리팩터링 + 실험 스크립트 + 정규화 + Notion 통합 + 유닛 테스트 포함) |
+| **주요 기술** | FastAPI, Claude Sonnet 4.6 (tool_use), Neo4j, faster-whisper, sentence-transformers, notion-client, HuggingFace datasets, jiwer, pytest, GitHub Actions |
+| **검증 상태** | KR-204 4주차 + AMI ES2002 4회차 텍스트 경로 + ES2002a 오디오 경로 E2E 통과, **83 유닛 테스트 (81 pass + 2 skip) · GitHub Actions CI success** |
+| **핵심 성과** | (1) 회차 간 Speaker/Topic/Entity 공유 병합, (2) GraphRAG 교차 회차 질의로 "결정 번복·진화·갈등" 추적, (3) STT→그래프 품질 전파 실증, (4) 임베딩 정규화 반복 개선, (5) README 시각화·한계 명시·CI 배지, (6) **Obsidian + Notion 병행 출력 (database 자동 생성)** |
 | **GitHub** | [tkddnjs-dlqslek/meeting-summarizer-graphrag](https://github.com/tkddnjs-dlqslek/meeting-summarizer-graphrag) |

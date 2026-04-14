@@ -129,6 +129,7 @@ flowchart TB
 | **도메인 커스터마이징** | 🔴 고정 | 🔴 고정 | 🔴 고정 | 🟢 **tool schema·프롬프트 수정** |
 | **자체 호스팅** | 🔴 | 🔴 | 🔴 | 🟢 **Neo4j self-hosted + 로컬 STT** |
 | **관계 기반 추론** | 🔴 | 🔴 | 🔴 | 🟢 **그래프 2-hop 탐색** |
+| **출력 이중화** | 🔴 단일 저장소 | 🔴 단일 저장소 | 🔴 단일 저장소 | 🟢 **Obsidian vault + Notion database 병행** |
 | 모바일 앱 | 🟢 | 🟢 | 🟢 | 🔴 |
 | 가격 | 🟢 개인 무료 | 🟡 유료 | 🟡 유료 | 🟢 오픈소스 (API 비용만) |
 
@@ -205,7 +206,36 @@ Swagger UI: http://localhost:8000/docs
 python -m streamlit run frontend/app.py --server.port 8502
 ```
 
-### 5. 빠른 테스트
+### 5. Notion 통합 (선택적)
+
+Obsidian과 **병행**으로 Notion database에도 회의록을 자동 저장할 수 있어요. 범용 SaaS처럼 팀원과 공유·필터링·검색이 되면서, 우리 구조화 추출 결과가 callout·toggle·to-do 블록으로 가독성 있게 렌더링됩니다.
+
+**사용자 설정 (약 3분)**:
+
+1. [notion.so/profile/integrations](https://www.notion.so/profile/integrations)에서 **+ New integration** → Private 타입으로 생성 → **Internal Integration Secret** 복사 (`ntn_...` 또는 `secret_...`)
+2. Notion에서 database가 들어갈 **부모 페이지** 하나 생성 (예: "Meeting Summarizer")
+3. 그 페이지 우측 상단 `⋯` → **Connections** → 방금 만든 Integration 연결
+4. 페이지 URL 뒤쪽 **32자 hex**가 `page_id` (예: `https://www.notion.so/Meeting-Summarizer-a1b2c3d4...`)
+5. `.env`에 3줄 추가:
+   ```env
+   NOTION_ENABLED=true
+   NOTION_TOKEN=ntn_xxxxxxxxxxxxxxxxxxxxxxxx
+   NOTION_PARENT_PAGE_ID=a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+   ```
+
+**첫 `/process-text` 호출 시** 코드가 부모 페이지 아래에 database를 **자동 생성**하고 ID를 `notion_db_id.json`에 캐시합니다. Database schema(Title, Date, Project, Participants, Categories, Meeting ID, Previous Meeting ID)도 자동 생성이라 사용자가 schema를 손볼 필요 없어요. 이후 모든 회의는 이 database에 페이지로 누적됩니다.
+
+**Notion 페이지 렌더링**:
+- 💬 상단 Callout: AI 요약
+- 👥 Heading 2 "참석자" + bulleted list (발언 비중 포함)
+- 🎯 Heading 2 "핵심 주제" + Toggle blocks (펼치면 summary + 관련 주제)
+- ✅ Heading 2 "결정 사항" + 녹색 Callout + Quote block(근거)
+- 📌 Heading 2 "액션 아이템" + To-do blocks (담당자·마감 포함)
+- 🏷️ Heading 2 "주요 엔티티" + bulleted list
+
+**Notion 실패가 파이프라인을 중단시키지 않습니다** — 토큰이 없거나 API 오류가 나면 조용히 skip하고 Obsidian·Neo4j는 정상 작동합니다.
+
+### 6. 빠른 테스트
 
 Swagger UI에서 `/process-text` 엔드포인트에 아래 JSON으로 POST:
 

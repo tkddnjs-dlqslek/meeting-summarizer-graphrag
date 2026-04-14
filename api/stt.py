@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from api.extractor import extract_graph_data
 from api.graph_builder import build_graph
 from api.obsidian_writer import write_meeting_note
+from api.notion_writer import write_meeting_note_to_notion
 from graph.neo4j_client import execute_query
 from graph import cypher_queries as Q
 
@@ -102,6 +103,7 @@ async def run_transcription(
         node_count = sum(r["count"] for r in stats)
         graph_data["node_count"] = node_count
         note_path = write_meeting_note(graph_data)
+        notion_url = write_meeting_note_to_notion(graph_data)
 
         job_store[job_id].update({
             "status": "done",
@@ -111,6 +113,7 @@ async def run_transcription(
                 "summary": graph_data.get("summary", ""),
                 "node_count": node_count,
                 "note_path": note_path,
+                "notion_url": notion_url,
             },
         })
 
