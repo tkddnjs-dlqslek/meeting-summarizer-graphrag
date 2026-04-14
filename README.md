@@ -27,59 +27,192 @@
 
 ## 🏗️ 아키텍처
 
-```mermaid
-flowchart LR
-    subgraph Input["📥 입력"]
-        AUDIO[오디오 파일<br/>mp3/wav/m4a]
-        TEXT[텍스트 transcript]
-    end
-
-    subgraph STT["🎤 Whisper STT (로컬)"]
-        WHISPER[faster-whisper<br/>medium int8 CPU]
-    end
-
-    subgraph Extract["🧠 Claude tool_use 2-pass 추출"]
-        P1[1차: Speakers<br/>Topics<br/>Entities]
-        P2[2차: ActionItems<br/>Decisions<br/>Relationships]
-        P1 --> P2
-    end
-
-    subgraph Graph["🕸️ Neo4j 지식 그래프"]
-        direction TB
-        GLOB["글로벌 노드<br/>(project_id 스코프)<br/>Speaker · Topic · Entity"]
-        LOC["로컬 노드<br/>(meeting_id 스코프)<br/>ActionItem · Decision"]
-        LINK["연결 엣지<br/>PARTICIPATED_IN<br/>DISCUSSED_IN<br/>MENTIONED_IN<br/>FOLLOWS"]
-        GLOB --- LINK
-        LOC --- LINK
-    end
-
-    subgraph Output["📤 출력"]
-        NOTE[Obsidian<br/>마크다운 노트]
-        QA[GraphRAG<br/>Q&A 패널]
-    end
-
-    AUDIO --> WHISPER --> Extract
-    TEXT --> Extract
-    Extract --> Graph
-    Graph --> NOTE
-    Graph --> QA
-```
-
-### GraphRAG 에이전트 구조
+### 1. 전체 데이터 플로우
 
 ```mermaid
 flowchart TB
-    Q[사용자 질문] --> GATHER{asyncio.gather<br/>병렬 실행}
-    GATHER --> A[Agent A<br/>주제 전문가<br/>━━━━━━<br/>Topic<br/>RELATED_TO<br/>2-hop 탐색]
-    GATHER --> B[Agent B<br/>실행 전문가<br/>━━━━━━<br/>ActionItem<br/>Decision<br/>담당자·마감일]
-    GATHER --> C[Agent C<br/>맥락 전문가<br/>━━━━━━<br/>Entity<br/>Speaker<br/>외부 맥락]
-    A --> SYN[Synthesizer<br/>통합·중복 제거<br/>상충 의견 조율]
-    B --> SYN
-    C --> SYN
-    SYN --> FINAL[최종 답변]
+    subgraph IN["📥 입력 (두 경로 공존)"]
+        direction LR
+        AUDIO["🎙️ 오디오 파일<br/>mp3 · wav · m4a · webm"]
+        TEXT["📄 텍스트 transcript<br/>회의록 붙여넣기"]
+    end
+
+    subgraph STT_LAYER["🎤 Whisper STT · BackgroundTask"]
+        direction TB
+        WHISPER["faster-whisper medium int8<br/>language = ko / en / auto<br/>로컬 실행 (GPU 불필요)"]
+    end
+
+    subgraph EXTRACT["🧠 Claude Sonnet 4.6 tool_use · 2-pass"]
+        direction TB
+        CTX["💡 이전 회차 컨텍스트<br/>같은 project_id의<br/>Speaker · Topic · Entity 이름 주입"]
+        P1["1차 pass<br/>━━━━━━━━━━<br/>extract_speakers<br/>extract_topics<br/>extract_entities"]
+        P2["2차 pass<br/>━━━━━━━━━━<br/>extract_action_items<br/>extract_decisions<br/>build_relationships"]
+        CTX -.시스템 프롬프트.-> P1
+        P1 -.pass1 결과 재주입.-> P2
+    end
+
+    subgraph NORM["🔍 임베딩 정규화 (safety net)"]
+        direction TB
+        EMB["sentence-transformers<br/>multilingual MiniLM"]
+        MAP["speaker_map · topic_map · entity_map<br/>fuzzy match → canonical 이름"]
+        EMB --> MAP
+    end
+
+    subgraph GRAPH["🕸️ Neo4j 지식 그래프 · project_id 스코프"]
+        direction TB
+        M["🔷 Meeting<br/>+ FOLLOWS 체인"]
+        S["👤 Speaker<br/>글로벌 (project)"]
+        T["🎯 Topic<br/>글로벌 (project)"]
+        E["🏷️ Entity<br/>글로벌 (project)"]
+        A["☐ ActionItem<br/>로컬 (meeting)"]
+        D["✓ Decision<br/>로컬 (meeting)"]
+        S -.PARTICIPATED_IN.-> M
+        T -.DISCUSSED_IN.-> M
+        E -.MENTIONED_IN.-> M
+        A -.belongs_to.-> M
+        D -.belongs_to.-> M
+    end
+
+    subgraph OUT["📤 출력 · 병행 저장"]
+        direction LR
+        OBS["📓 Obsidian vault<br/>MeetingNotes/{project}/*.md<br/>위키링크 [[주제]]"]
+        NOTION["📋 Notion database<br/>callout · toggle · to-do<br/>schema 자동 생성"]
+    end
+
+    subgraph QA["🎯 GraphRAG Q&A (POST /agents)"]
+        direction TB
+        GATHER{"asyncio.gather<br/>병렬 실행"}
+        AG_A["Agent A<br/>주제 전문가"]
+        AG_B["Agent B<br/>실행 전문가"]
+        AG_C["Agent C<br/>맥락 전문가"]
+        SYN["🧩 Synthesizer<br/>통합 · 충돌 조율"]
+        GATHER --> AG_A --> SYN
+        GATHER --> AG_B --> SYN
+        GATHER --> AG_C --> SYN
+    end
+
+    AUDIO -->|POST /stt| STT_LAYER
+    STT_LAYER --> EXTRACT
+    TEXT -->|POST /process-text| EXTRACT
+    EXTRACT --> NORM
+    NORM --> GRAPH
+    GRAPH --> OBS
+    GRAPH --> NOTION
+    GRAPH -.Cypher 쿼리.-> QA
 ```
 
-3개 에이전트가 각자의 관점으로 그래프를 탐색한 뒤 Synthesizer가 통합합니다. 단일 LLM보다 관점 누락이 적고, `asyncio.gather` 덕분에 지연은 1x지만 비용은 3x (필요 시 Haiku로 일부 교체 가능).
+두 입력 경로(오디오/텍스트)가 STT 유무만 다르고 이후 파이프라인을 **공유**합니다. 정규화·그래프·출력·Q&A는 전부 동일 경로.
+
+### 2. GraphRAG 에이전트 구조 (교차 회차 탐색)
+
+```mermaid
+flowchart TB
+    Q[["❓ 사용자 질문<br/>meeting_id (단일) 또는 project_id (전체 회차)"]]
+    Q --> ROUTE{"스코프 분기"}
+
+    ROUTE -->|meeting_id 지정| SINGLE["단일 회차 모드<br/>Cypher *_BY_MEETING"]
+    ROUTE -->|project_id 지정| CROSS["전체 회차 모드<br/>Cypher *_BY_PROJECT"]
+
+    SINGLE --> GATHER
+    CROSS --> GATHER
+
+    GATHER{{"asyncio.gather<br/>3-way 병렬 실행"}}
+
+    GATHER --> A["🎯 Agent A · 주제 전문가"]
+    GATHER --> B["📌 Agent B · 실행 전문가"]
+    GATHER --> C["🌐 Agent C · 맥락 전문가"]
+
+    subgraph CYA["Agent A — 주제 흐름 추적"]
+        direction TB
+        QA_Q["Cypher:<br/>MATCH (t:Topic)-[:RELATED_TO]-(t2)<br/>OPTIONAL (s:Speaker)-[:MENTIONED]->(t)<br/>2-hop 탐색"]
+        QA_R["결과: 주제 진화, 반복된 의제,<br/>발화자 관심사 매핑"]
+        QA_Q --> QA_R
+    end
+
+    subgraph CYB["Agent B — 결정·실행 추적"]
+        direction TB
+        QB_Q["Cypher:<br/>MATCH (a:ActionItem), (d:Decision)<br/>OPTIONAL (s)-[:OWNS]->(a)<br/>status · deadline 정렬"]
+        QB_R["결과: 번복된 결정,<br/>이월된 action, 담당자별 부담"]
+        QB_Q --> QB_R
+    end
+
+    subgraph CYC["Agent C — 참석자·외부 맥락"]
+        direction TB
+        QC_Q["Cypher:<br/>MATCH (s:Speaker)-[:PARTICIPATED_IN]->(m)<br/>MATCH (e:Entity)-[:MENTIONED_IN]->(m)<br/>평균 발화 비중 · 엔티티 집합"]
+        QC_R["결과: 입장 차이, 역할 분화,<br/>외부 조직·규정·제품"]
+        QC_Q --> QC_R
+    end
+
+    A --> CYA --> ANS_A[["Agent A 분석"]]
+    B --> CYB --> ANS_B[["Agent B 분석"]]
+    C --> CYC --> ANS_C[["Agent C 분석"]]
+
+    ANS_A --> SYN[["🧩 Synthesizer<br/>━━━━━━━━━━━━━━━━━<br/>· 중복 제거<br/>· 상충 의견 균형 제시<br/>· 교차 회차 인과 통합"]]
+    ANS_B --> SYN
+    ANS_C --> SYN
+
+    SYN --> FINAL[["📝 최종 답변<br/>(multi-perspective)"]]
+```
+
+3명의 에이전트는 서로 다른 **Cypher 쿼리 프로필**을 가집니다. Agent A는 주제 그래프 2-hop, Agent B는 로컬 Decision/ActionItem, Agent C는 교차 회차 Speaker/Entity. `asyncio.gather`로 진짜 병렬 실행이라 지연 1x · 비용 3x (필요 시 Haiku로 일부 교체 가능).
+
+### 3. Neo4j 스키마 (ER 다이어그램)
+
+```mermaid
+erDiagram
+    Meeting ||--o{ ActionItem : "contains"
+    Meeting ||--o{ Decision : "contains"
+    Meeting ||--o| Meeting : "FOLLOWS (이전 회차)"
+    Speaker }o--o{ Meeting : "PARTICIPATED_IN"
+    Topic }o--o{ Meeting : "DISCUSSED_IN"
+    Entity }o--o{ Meeting : "MENTIONED_IN"
+    Speaker }o--o{ Topic : "MENTIONED"
+    Speaker ||--o{ ActionItem : "OWNS"
+    Decision }o--o{ Topic : "ABOUT"
+    Entity }o--o{ Topic : "ASSOCIATED_WITH"
+    Topic }o--o{ Topic : "RELATED_TO"
+
+    Meeting {
+        string meeting_id PK
+        string project_id
+        string title
+        date date
+    }
+    Speaker {
+        string name PK
+        string project_id PK
+        string role
+    }
+    Topic {
+        string name PK
+        string project_id PK
+        string category
+        string summary
+    }
+    Entity {
+        string name PK
+        string project_id PK
+        string type
+    }
+    ActionItem {
+        string description PK
+        string meeting_id PK
+        string owner
+        date deadline
+        string status
+    }
+    Decision {
+        string description PK
+        string meeting_id PK
+        string rationale
+    }
+```
+
+**핵심 설계 결정**:
+
+- `Speaker / Topic / Entity`의 PK가 **`(name, project_id)` 복합키**. 같은 프로젝트 안에서는 같은 사람·주제가 회차에 걸쳐 **하나의 노드로 병합**되어 교차 회차 질의가 가능. 다른 프로젝트의 동명이인(`Laura@projectA` vs `Laura@projectB`)은 자동으로 분리.
+- `ActionItem / Decision`은 `(description, meeting_id)` 복합키로 **회차별 고유 이벤트**로 남음. 한 회의에서 내린 결정이 다른 회의의 결정과 섞이지 않음.
+- `Meeting-FOLLOWS-Meeting`은 optional self-relation으로 시계열 체인을 만듦. 회차 순서 추론과 "직전 회의에서 뭘 결정했는지" 추적에 사용.
 
 ---
 
