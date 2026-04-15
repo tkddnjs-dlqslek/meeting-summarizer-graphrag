@@ -218,7 +218,7 @@ erDiagram
 
 ## 📊 AMI ES2002 4회차 검증 결과
 
-`edinburghcstr/ami` 데이터셋의 **ES2002a/b/c/d (리모컨 디자인 4회차)** 로 실제 검증한 결과입니다. 상세 수치는 [REPORT.md](REPORT.md) 10장 참조.
+`edinburghcstr/ami` 데이터셋의 **ES2002a/b/c/d (리모컨 디자인 4회차)** 로 실제 검증한 결과입니다. 상세 수치·해석은 [REPORT.md](REPORT.md) 1장 "AMI Corpus 4회차 연속성 실험" 참조.
 
 ### 텍스트 경로
 
@@ -240,7 +240,7 @@ erDiagram
 
 | 지표 | 값 |
 |---|---|
-| **WER** | **30.45%** (Deletion 535 지배적 — 원인: backchannel 손실 + Whisper의 filler 제거 경향 + overlapping speech 병합. 자세한 분해는 [REPORT.md 10-5](REPORT.md) 참조) |
+| **WER** | **30.45%** (Deletion 535 지배적 — 원인: backchannel 손실 + Whisper의 filler 제거 경향 + overlapping speech 병합. 자세한 분해는 [REPORT.md §1-5](REPORT.md) 참조) |
 | 핵심 숫자 보존 | ✅ **€25 / €12.50** 완벽 |
 | 참가자 이름 | ⚠️ Laura/Andrew/David ✅, **Craig → Greg 오인식** |
 
@@ -428,7 +428,7 @@ Swagger UI에서 `/process-text` 엔드포인트에 아래 JSON으로 POST:
 │   ├── run_ami_audio.py          오디오 경로 (/stt)
 │   └── phase4_eval.py            WER + 교차 질의 비교
 ├── README.md                     (이 파일)
-├── REPORT.md                     상세 개발 보고서 + AMI 실험 결과
+├── REPORT.md                     실험·분석 문서 (Experiments & Analysis)
 ├── CLAUDE.md                     프로젝트 컨텍스트
 └── requirements.txt
 ```
@@ -437,7 +437,11 @@ Swagger UI에서 `/process-text` 엔드포인트에 아래 JSON으로 POST:
 
 ## 📖 문서
 
-- [**REPORT.md**](REPORT.md) — 상세 개발 보고서. 특히 10장(AMI 4회차 연속성 실험)과 Phase 1~4의 수치 결과.
+- [**REPORT.md**](REPORT.md) — **Experiments & Analysis**. 이 README를 보완하는 실험·분석 문서:
+  - **§1. AMI Corpus 4회차 연속성 실험** — 수치·비교표·Phase 4 WER 원인 분해
+  - **§2. 후속 개선 요약** — 임베딩 정규화 / Notion 병행 출력의 "왜·무엇·해석"
+  - **§3. 포트폴리오 포지셔닝** — 면접용 한 줄 요약 + 10개 역량 매트릭스 + 솔직한 한계
+  - **§4. 요약**
 - [**CLAUDE.md**](CLAUDE.md) — 프로젝트 컨텍스트, 트러블슈팅, 환경변수 가이드.
 
 ---
