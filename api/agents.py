@@ -201,7 +201,8 @@ async def synthesizer(question: str, answers: list[str]) -> str:
         "규칙:\n"
         "- 번호 목차(1. 2. 3.), 긴 표, 섹션 헤더(##)는 사용하지 마세요.\n"
         "- 중복을 제거하고, 상충하는 의견은 한 bullet 안에서 균형 있게 정리.\n"
-        "- 전체 분량 500자 내외. 짧고 밀도 있게."
+        "- 전체 분량 500자 내외. 짧고 밀도 있게.\n"
+        "- 한국어 존댓말(해요체)로 작성하세요. 딱딱한 보고서 말투가 아니라 전문가가 동료에게 설명하듯 자연스럽게."
     )
     response = get_client().messages.create(
         model=MODEL,
