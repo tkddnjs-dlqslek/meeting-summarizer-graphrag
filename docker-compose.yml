@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    image: meeting-summarizer-app:latest
+    container_name: meeting-summarizer-backend
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./MeetingNotes:/app/MeetingNotes
+      - ./models:/app/models   # Whisper 모델 캐시 (첫 실행 후 유지)
+    command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  frontend:
+    image: meeting-summarizer-app:latest
+    container_name: meeting-summarizer-frontend
+    env_file:
+      - .env
+    environment:
+      # frontend가 backend 컨테이너를 가리키도록
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "8502:8502"
+    command: python -m streamlit run frontend/app.py --server.port 8502 --server.address 0.0.0.0
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# 네트워크는 기본(default) 사용 — 컨테이너 이름으로 서로 참조 가능.

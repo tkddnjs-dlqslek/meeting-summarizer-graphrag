@@ -1,6 +1,7 @@
 # Meeting Summarizer + GraphRAG Expert Panel
 
 [![CI](https://github.com/tkddnjs-dlqslek/meeting-summarizer-graphrag/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddnjs-dlqslek/meeting-summarizer-graphrag/actions/workflows/ci.yml)
+[![HF Space](https://img.shields.io/badge/🤗-Live%20Demo-yellow.svg)](https://huggingface.co/spaces/sangwongim922/meeting-summarizer-graphrag-demo)
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688.svg)](https://fastapi.tiangolo.com/)
 [![Neo4j](https://img.shields.io/badge/Neo4j-AuraDB-008CC1.svg)](https://neo4j.com/cloud/aura/)
@@ -9,6 +10,12 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > 회의 오디오/텍스트를 **Neo4j 지식 그래프**로 구조화하고, **멀티 에이전트 GraphRAG**로 질의응답하며, **Obsidian 노트**까지 자동 생성하는 회의 분석 시스템입니다. 클로바노트·Notta 같은 범용 SaaS가 "회의 하나를 예쁘게 저장"하는 데 집중한다면, 이 프로젝트는 **여러 회의가 누적되는 프로젝트의 '지식자산'** 을 만드는 데 집중합니다.
+
+## 🎯 Live Demo
+
+**[🤗 Hugging Face Spaces에서 바로 체험하기 →](https://huggingface.co/spaces/sangwongim922/meeting-summarizer-graphrag-demo)**
+
+AMI ES2002 리모컨 디자인 4회차 회의가 미리 투입된 상태로, 3개 추천 질문 버튼 중 하나만 클릭하면 GraphRAG 3-agent 패널이 교차 회차 답변을 생성합니다. (세션당 5회 질의 제한, 콜드 스타트 시 30~60초)
 
 ---
 
@@ -338,6 +345,20 @@ Swagger UI: http://localhost:8000/docs
 ```bash
 python -m streamlit run frontend/app.py --server.port 8502
 ```
+
+### 🐳 Docker Compose (원클릭 실행)
+
+파이썬 환경 설정 없이 바로 돌리고 싶으면:
+
+```bash
+cp .env.example .env   # 그리고 ANTHROPIC_API_KEY, NEO4J_* 채우기
+docker compose up
+```
+
+- 백엔드: http://localhost:8000/docs
+- 프론트엔드: http://localhost:8502
+
+첫 빌드는 5~10분(faster-whisper medium 모델 포함). `models/` 볼륨 마운트로 두 번째 실행부터는 빠릅니다.
 
 ### 5. Notion 통합 (선택적)
 
